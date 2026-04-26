@@ -12,6 +12,7 @@ import (
 	"os"
 	P "path"
 	"runtime"
+	"strings"
 	"time"
 
 	"cfa/native/app"
@@ -43,22 +44,18 @@ func openUrlAsString(ctx context.Context, url string) (string, error) {
 		return "", requestErr
 	}
 
-	// 读取所有数据并转换为byte数组
 	data, err := io.ReadAll(body)
 	defer body.Close()
 	if err != nil {
 		return "", err
 	}
-	// 将数据转为字符串
 	content := string(data)
 	return content, nil
 }
 
 func openUrlAsYaml(ctx context.Context, url string) (map[string]interface{}, error) {
 	content, _ := openUrlAsString(ctx, url)
-	// 定义一个结构体来存储 YAML 解析结果
-	var config map[string]interface{} // 假设 config 是一个 map
-	// 解析 YAML 内容
+	var config map[string]interface{}
 	err := yaml.Unmarshal([]byte(content), &config)
 	if err != nil {
 		return nil, err
@@ -123,13 +120,10 @@ func applyParsers(ctx context.Context, subscribeOriginalStr string, subscribeUrl
 		return subscribeOriginalStr
 	}
 
-	// 定义一个结构体来存储 YAML 解析结果
 	var subscribe map[string]interface{}
 
-	// 解析 YAML 内容
 	err := yaml.Unmarshal([]byte(subscribeOriginalStr), &subscribe)
 	if err != nil {
-		// 如果解析出错，返回错误信息作为字符串
 		log.Debugln("failed to parse YAML: %v", err)
 		return fmt.Sprintf("failed to parse YAML: %v", err)
 	}
@@ -158,28 +152,143 @@ func applyParsers(ctx context.Context, subscribeOriginalStr string, subscribeUrl
 	subscribe = prependArr(subscribe, "proxy-groups", parsers, "prepend-proxy-groups")
 	subscribe = prependArr(subscribe, "rules", parsers, "prepend-rules")
 
-	// 将解析后的数据结构转回 YAML 格式的字符串
+	// patch-proxy-groups: изменяет существующие группы по имени
+	// Поддерживает: type, exclude-filter, filter, interval, tolerance, lazy
+	// Пример в my_rules.yaml:
+	//   patch-proxy-groups:
+	//     - name: "🚀 Best Ping"
+	//       exclude-filter: "🇷🇺"
+	//     - name: "⚡ Antiblock Auto"
+	//       type: select
+	subscribe = patchProxyGroups(subscribe, parsers)
+
 	yamlBytes, err := yaml.Marshal(subscribe)
 	if err != nil {
 		log.Debugln("failed to marshal YAML: %v", err)
 		return fmt.Sprintf("failed to marshal YAML: %v", err)
 	}
 
-	// 返回解析后的 YAML 字符串
 	return string(yamlBytes)
 }
 
+// patchProxyGroups applies patch-proxy-groups from parsers to existing groups in subscribe.
+// It finds each group by name and merges the patch fields into it.
+// Supported fields: type, exclude-filter, filter, interval, tolerance, lazy, url
+func patchProxyGroups(subscribe map[string]interface{}, parsers map[string]interface{}) map[string]interface{} {
+	patches, ok := parsers["patch-proxy-groups"].([]interface{})
+	if !ok {
+		log.Debugln("patch-proxy-groups not found in parsers, skipping")
+		return subscribe
+	}
+
+	groups, ok := subscribe["proxy-groups"].([]interface{})
+	if !ok {
+		log.Debugln("proxy-groups not found in subscribe, skipping patch")
+		return subscribe
+	}
+
+	for _, patchRaw := range patches {
+		patch, ok := patchRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		targetName, ok := patch["name"].(string)
+		if !ok {
+			continue
+		}
+
+		log.Debugln("patch-proxy-groups: applying patch to group %s", targetName)
+
+		for i, groupRaw := range groups {
+			group, ok := groupRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			groupName, ok := group["name"].(string)
+			if !ok {
+				continue
+			}
+
+			if groupName != targetName {
+				continue
+			}
+
+			// Apply all fields from patch except "name"
+			for key, value := range patch {
+				if key == "name" {
+					continue
+				}
+
+				// Special handling: exclude-filter filters the proxies list
+				if key == "exclude-filter" {
+					excludeFilter, ok := value.(string)
+					if ok && excludeFilter != "" {
+						group = applyExcludeFilter(group, excludeFilter)
+						log.Debugln("patch-proxy-groups: applied exclude-filter '%s' to group %s", excludeFilter, targetName)
+					}
+					// Also store the exclude-filter field itself
+					group[key] = value
+				} else {
+					group[key] = value
+					log.Debugln("patch-proxy-groups: set %s=%v on group %s", key, value, targetName)
+				}
+			}
+
+			groups[i] = group
+			break
+		}
+	}
+
+	subscribe["proxy-groups"] = groups
+	return subscribe
+}
+
+// applyExcludeFilter removes proxies from a group whose names start with any of the
+// pipe-separated flag/prefix patterns in excludeFilter.
+// Example excludeFilter: "🇷🇺" or "🇷🇺|🇰🇿"
+func applyExcludeFilter(group map[string]interface{}, excludeFilter string) map[string]interface{} {
+	proxies, ok := group["proxies"].([]interface{})
+	if !ok {
+		return group
+	}
+
+	patterns := strings.Split(excludeFilter, "|")
+
+	filtered := make([]interface{}, 0, len(proxies))
+	for _, proxyRaw := range proxies {
+		proxyName, ok := proxyRaw.(string)
+		if !ok {
+			filtered = append(filtered, proxyRaw)
+			continue
+		}
+
+		excluded := false
+		for _, pattern := range patterns {
+			pattern = strings.TrimSpace(pattern)
+			if pattern != "" && strings.HasPrefix(proxyName, pattern) {
+				excluded = true
+				break
+			}
+		}
+
+		if !excluded {
+			filtered = append(filtered, proxyRaw)
+		}
+	}
+
+	group["proxies"] = filtered
+	return group
+}
+
 func prependArr(subscribe map[string]interface{}, subscribeKey string, parsers map[string]interface{}, parserKey string) map[string]interface{} {
-	// 处理prepend-rules
 	if arrToPrepend, arrToPrependExist := parsers[parserKey].([]interface{}); arrToPrependExist {
 		log.Debugln("parses找到%s", parserKey)
-		// 提取 originalArr 字段
 		if originalArr, originalArrExist := subscribe[subscribeKey].([]interface{}); originalArrExist {
 			log.Debugln("subscribe找到%s", subscribeKey)
-			// 将新的规则添加到 originalArr 数组的头部
 			log.Debugln("subscribe原始%s:%v", subscribeKey, originalArr)
 			originalArr = append(arrToPrepend, originalArr...)
-			// 更新 subscribe 中的 originalArr 字段
 			subscribe[subscribeKey] = originalArr
 			log.Debugln("subscribe编辑后%s:%v", subscribeKey, subscribe[subscribeKey])
 		} else {
