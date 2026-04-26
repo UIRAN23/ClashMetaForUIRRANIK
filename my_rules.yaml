@@ -3,9 +3,11 @@ parsers:
     prepend-proxy-groups:
       - name: "GEOHIDE"
         type: select
-        proxies: ["DIRECT", "PROXY"]
+        proxies:
+          - DIRECT
+          - PROXY
+    patch-proxy-groups:
       - name: "🚀 Best Ping"
-        type: url-test
         exclude-filter: "🇷🇺"
       - name: "⚡ Antiblock Auto"
         type: select
