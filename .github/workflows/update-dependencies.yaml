@@ -57,12 +57,6 @@ jobs:
           update-go-mod-replace ${{ github.workspace }}/core/src/foss/golang/clash/go.mod $(pwd)/go.mod
           go mod tidy
 
-      - uses: actions/create-github-app-token@v3
-        id: generate-token
-        with:
-          client-id: ${{ secrets.MAINTAINER_APPID }}
-          private-key: ${{ secrets.MAINTAINER_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
 
       - name: Create Pull Request
         id: cpr
