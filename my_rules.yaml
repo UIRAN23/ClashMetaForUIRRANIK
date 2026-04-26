@@ -1,5 +1,14 @@
 parsers:
   yaml:
+    prepend-proxy-groups:
+      - name: "GEOHIDE"
+        type: select
+        proxies: ["DIRECT", "PROXY"]
+      - name: "🚀 Best Ping"
+        type: url-test
+        exclude-filter: "🇷🇺"
+      - name: "⚡ Antiblock Auto"
+        type: select
     prepend-rules:
       - DOMAIN,vpn.yzewe.ru,DIRECT
       - DOMAIN-SUFFIX,yandex.ru,DIRECT
@@ -887,5 +896,3 @@ parsers:
       - DOMAIN,youtube.staging-zdchint.mau.jetbrains.com,GEOHIDE
       - DOMAIN,zen.deezer.com,GEOHIDE
       - DOMAIN,zillow.fls.jetbrains.com,GEOHIDE
-    prepend-proxy-groups:
-      - {name: "GEOHIDE", type: select, proxies: ["DIRECT", "PROXY"]}
