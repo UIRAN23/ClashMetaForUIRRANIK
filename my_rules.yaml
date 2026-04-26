@@ -888,4 +888,4 @@ parsers:
       - DOMAIN,zen.deezer.com,GEOHIDE
       - DOMAIN,zillow.fls.jetbrains.com,GEOHIDE
     prepend-proxy-groups:
-      - {name: "GEOHIDE", type: select, proxies: ["PROXY", "DIRECT"]}
+      - {name: "GEOHIDE", type: select, proxies: ["DIRECT", "PROXY"]}
