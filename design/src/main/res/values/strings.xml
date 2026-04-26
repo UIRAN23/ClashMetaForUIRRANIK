@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="PluralsCandidate">
-    <string name="launch_name_meta">Clash Meta</string>
-    <string name="launch_name_alpha">Clash Meta Alpha</string>
+    <string name="launch_name_meta">Clash Гино</string>
+    <string name="launch_name_alpha">Clash Гино Alpha</string>
     <string name="application_name_meta">Clash Meta by UIRRANIK</string>
     <string name="application_name_alpha">Clash Meta by UIRRANIK Alpha</string>
 
