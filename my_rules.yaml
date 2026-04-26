@@ -889,4 +889,3 @@ parsers:
       - DOMAIN,zillow.fls.jetbrains.com,GEOHIDE
     prepend-proxy-groups:
       - {name: "GEOHIDE", type: select, proxies: ["DIRECT", "PROXY"]}
-      - {name: "⚡ Antiblock Auto", type: select, proxies: ["DIRECT"]}
