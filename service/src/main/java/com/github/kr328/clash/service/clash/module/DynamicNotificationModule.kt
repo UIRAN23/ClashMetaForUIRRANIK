@@ -13,8 +13,7 @@ import com.github.kr328.clash.common.constants.Components
 import com.github.kr328.clash.common.constants.Intents
 import com.github.kr328.clash.common.util.ticker
 import com.github.kr328.clash.core.Clash
-import com.github.kr328.clash.core.util.trafficDownload
-import com.github.kr328.clash.core.util.trafficUpload
+import com.github.kr328.clash.core.model.ProxySort
 import com.github.kr328.clash.service.R
 import com.github.kr328.clash.service.StatusProvider
 import kotlinx.coroutines.channels.Channel
@@ -43,28 +42,56 @@ class DynamicNotificationModule(service: Service) : Module<Unit>(service) {
 
     private val notificationManager = NotificationManagerCompat.from(service)
 
-    private fun update() {
-        val now = Clash.queryTrafficNow()
-        val total = Clash.queryTrafficTotal()
+    // Resolves full proxy chain starting from groupName
+    // Result example: "PROXY → 🚀 Best Ping → 🇫🇮 Финляндия 44"
+    private fun resolveChain(startGroup: String, maxDepth: Int = 4): String {
+        val parts = mutableListOf(startGroup)
+        var current = startGroup
 
-        val uploading = now.trafficUpload()
-        val downloading = now.trafficDownload()
-        val uploaded = total.trafficUpload()
-        val downloaded = total.trafficDownload()
+        repeat(maxDepth) {
+            val group = try {
+                Clash.queryGroup(current, ProxySort.Default)
+            } catch (e: Exception) {
+                return parts.joinToString(" → ")
+            }
+
+            // group.now is the currently selected proxy in this group
+            val selected = group.now
+            if (selected.isNullOrBlank() || selected == current) {
+                return parts.joinToString(" → ")
+            }
+
+            // Check if selected is itself a group (has sub-selection)
+            val subGroup = try {
+                Clash.queryGroup(selected, ProxySort.Default)
+            } catch (e: Exception) {
+                // Not a group, it's a direct proxy — add and stop
+                parts.add(selected)
+                return parts.joinToString(" → ")
+            }
+
+            parts.add(selected)
+
+            if (subGroup.now.isNullOrBlank() || subGroup.now == selected) {
+                // Leaf group or direct proxy
+                return parts.joinToString(" → ")
+            }
+
+            current = selected
+        }
+
+        return parts.joinToString(" → ")
+    }
+
+    private fun update() {
+        val chain = try {
+            resolveChain("PROXY")
+        } catch (e: Exception) {
+            "PROXY"
+        }
 
         val notification = builder
-            .setContentText(
-                service.getString(
-                    R.string.clash_notification_content,
-                    "$uploading/s", "$downloading/s"
-                )
-            )
-            .setSubText(
-                service.getString(
-                    R.string.clash_notification_content,
-                    uploaded, downloaded
-                )
-            )
+            .setContentText(chain)
             .build()
 
         notificationManager.notify(R.id.nf_clash_status, notification)
