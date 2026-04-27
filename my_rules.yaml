@@ -8,7 +8,7 @@ parsers:
           - PROXY
     patch-proxy-groups:
       - name: "🚀 Best Ping"
-        exclude-filter: "🇷🇺,📱"
+        exclude-filter: "🇷🇺 Россия,📱 Антиблок"
     prepend-rules:
       - DOMAIN,vpn.yzewe.ru,DIRECT
       - DOMAIN-SUFFIX,yandex.ru,DIRECT
