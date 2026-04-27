@@ -8,7 +8,7 @@ parsers:
           - PROXY
     patch-proxy-groups:
       - name: "🚀 Best Ping"
-        exclude-filter: "🇷🇺"
+        exclude-filter: "🇷🇺|📱"
       - name: "⚡ Auto Antiblock"
         type: url-test
     prepend-rules:
