@@ -13,6 +13,7 @@ import com.github.kr328.clash.common.constants.Components
 import com.github.kr328.clash.common.constants.Intents
 import com.github.kr328.clash.common.util.ticker
 import com.github.kr328.clash.core.Clash
+import com.github.kr328.clash.core.model.Proxy
 import com.github.kr328.clash.core.model.ProxySort
 import com.github.kr328.clash.service.R
 import com.github.kr328.clash.service.StatusProvider
@@ -42,45 +43,76 @@ class DynamicNotificationModule(service: Service) : Module<Unit>(service) {
 
     private val notificationManager = NotificationManagerCompat.from(service)
 
-    // Resolves full proxy chain starting from groupName
-    // Result example: "PROXY → 🚀 Best Ping → 🇫🇮 Финляндия 44"
+    data class ChainNode(val name: String, val delay: Int)
+
+    // Получить delay конкретного прокси из группы.
+    // ProxyGroup.proxies — только первые 50 (SliceProxyList).
+    // Чтобы найти выбранный прокси:
+    // 1. Сначала ищем в уже загруженном списке (Default sort)
+    // 2. Если не нашли — запрашиваем ещё раз с сортировкой Delay:
+    //    у url-test группы лучший (выбранный) прокси всегда будет первым при сортировке по задержке
+    private fun getDelayForProxy(groupName: String, proxyName: String): Int {
+        // Попытка 1: искать в дефолтном списке (первые 50)
+        val defaultGroup = Clash.queryGroup(groupName, ProxySort.Default)
+        val fromDefault = defaultGroup.proxies.find { it.name == proxyName }?.delay
+        if (fromDefault != null && fromDefault > 0) return fromDefault
+
+        // Попытка 2: сортировка по Delay — выбранный прокси будет в топе
+        return try {
+            val delayGroup = Clash.queryGroup(groupName, ProxySort.Delay)
+            delayGroup.proxies.find { it.name == proxyName }?.delay ?: 0
+        } catch (e: Exception) {
+            0
+        }
+    }
+
     private fun resolveChain(startGroup: String, maxDepth: Int = 4): String {
-        val parts = mutableListOf(startGroup)
+        val nodes = mutableListOf<ChainNode>()
         var current = startGroup
+        var parentGroup = startGroup
+
+        nodes.add(ChainNode(startGroup, 0))
 
         repeat(maxDepth) {
-            val group = try {
-                Clash.queryGroup(current, ProxySort.Default)
-            } catch (e: Exception) {
-                return parts.joinToString(" → ")
+            val group = Clash.queryGroup(current, ProxySort.Default)
+
+            if (group.type == Proxy.Type.Unknown || group.now.isBlank() || group.now == current) {
+                return formatChain(nodes)
             }
 
-            // group.now is the currently selected proxy in this group
             val selected = group.now
-            if (selected.isNullOrBlank() || selected == current) {
-                return parts.joinToString(" → ")
+            parentGroup = current
+
+            // Проверяем является ли selected тоже группой
+            val subGroup = Clash.queryGroup(selected, ProxySort.Default)
+            val isLeaf = subGroup.type == Proxy.Type.Unknown || subGroup.now.isBlank()
+
+            val delay = if (isLeaf) {
+                // Конечный прокси — получаем его delay из родительской группы
+                getDelayForProxy(parentGroup, selected)
+            } else {
+                0
             }
 
-            // Check if selected is itself a group (has sub-selection)
-            val subGroup = try {
-                Clash.queryGroup(selected, ProxySort.Default)
-            } catch (e: Exception) {
-                // Not a group, it's a direct proxy — add and stop
-                parts.add(selected)
-                return parts.joinToString(" → ")
-            }
+            nodes.add(ChainNode(selected, delay))
 
-            parts.add(selected)
-
-            if (subGroup.now.isNullOrBlank() || subGroup.now == selected) {
-                // Leaf group or direct proxy
-                return parts.joinToString(" → ")
+            if (isLeaf) {
+                return formatChain(nodes)
             }
 
             current = selected
         }
 
-        return parts.joinToString(" → ")
+        return formatChain(nodes)
+    }
+
+    private fun formatChain(nodes: List<ChainNode>): String {
+        if (nodes.isEmpty()) return "PROXY"
+
+        return nodes.mapIndexed { index, node ->
+            val isLast = index == nodes.size - 1
+            if (isLast && node.delay > 0) "${node.name} (${node.delay}ms)" else node.name
+        }.joinToString(" → ")
     }
 
     private fun update() {
